@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vanilla JavaScript DApp</title>
+  <script src="https://cdn.jsdelivr.net/npm/ethers@6.0.0/dist/ethers.min.js"></script>
+  <style>
+    #connectButton {
+      padding: 10px 20px;
+      background: #4caf50;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    #adminUI, #userUI {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <button id="connectButton">Connect Wallet</button>
+  
+  <!-- Admin UI -->
+  <div id="adminUI">
+    <h1>Admin UI</h1>
+    <button onclick="alert('Admin functionality goes here')">Admin Action</button>
+  </div>
+
+  <!-- User UI -->
+  <div id="userUI">
+    <h1>User UI</h1>
+    <button onclick="alert('User functionality goes here')">User Action</button>
+  </div>
+
+  <script>
+    // The ethers.js library is available globally after the above script tag.
+    const CONTRACT_ADDRESS = "0x7B6Ff640a9cB52f4054d7540a9cc18a4F7bafFf6";
+    const TokenPresaleABI = [/* Add your ABI here */];
+    let connectedAddress = null;
+    let ownerAddress = null;
+    let isOwner = false;
+    let isLoading = false;
+
+    // Fetch owner address from the smart contract
+    const fetchOwnerAddress = async () => {
+      try {
+        if (!window.ethereum) throw new Error("MetaMask not installed");
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        const contract = new ethers.Contract(CONTRACT_ADDRESS, TokenPresaleABI, provider);
+        const owner = await contract.owner();
+        ownerAddress = owner;
+        return owner;
+      } catch (error) {
+        console.error("Error fetching owner address:", error.message);
+        return null;
+      }
+    };
+
+    // Switch to Polygon network
+    const switchToPolygon = async () => {
+      if (!window.ethereum) {
+        alert("MetaMask is not installed!");
+        return;
+      }
+
+      try {
+        const polygonChainId = "0x89"; // Polygon Mainnet Chain ID
+        const chainId = await window.ethereum.request({ method: "eth_chainId" });
+
+        if (chainId !== polygonChainId) {
+          await window.ethereum.request({
+            method: "wallet_switchEthereumChain",
+            params: [{ chainId: polygonChainId }],
+          });
+        } else {
+          console.log("Already on Polygon network");
+        }
+      } catch (error) {
+        if (error.code === 4902) {
+          try {
+            await window.ethereum.request({
+              method: "wallet_addEthereumChain",
+              params: [
+                {
+                  chainId: "0x89",
+                  chainName: "Polygon Mainnet",
+                  rpcUrls: ["https://polygon-rpc.com/"],
+                  nativeCurrency: {
+                    name: "MATIC",
+                    symbol: "MATIC",
+                    decimals: 18,
+                  },
+                  blockExplorerUrls: ["https://polygonscan.com/"],
+                },
+              ],
+            });
+          } catch (addError) {
+            console.error("Error adding Polygon network:", addError.message);
+          }
+        } else {
+          console.error("Error switching to Polygon network:", error.message);
+          alert("Failed to switch networks. Please check your MetaMask settings.");
+        }
+      }
+    };
+
+    // Handle wallet connection and check if the connected address is the owner
+    const handleConnectWallet = async () => {
+      try {
+        const button = document.getElementById("connectButton");
+
+        if (connectedAddress) {
+          // Disconnect wallet
+          connectedAddress = null;
+          isOwner = false;
+          updateUI(false, false);
+          return;
+        }
+
+        isLoading = true;
+        updateUI(true, false);
+
+        await switchToPolygon();
+
+        if (!window.ethereum) throw new Error("MetaMask not installed");
+
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        const signer = await provider.getSigner();
+        const connectedAddr = await signer.getAddress();
+        connectedAddress = connectedAddr;
+
+        setTimeout(async () => {
+          const ownerAddr = await fetchOwnerAddress();
+          isOwner = connectedAddr.toLowerCase() === ownerAddr?.toLowerCase();
+          isLoading = false;
+          updateUI(false, true);
+        }, 3000);
+      } catch (error) {
+        isLoading = false;
+        console.error("Failed to connect wallet:", error.message);
+        alert("An error occurred while connecting to the wallet. Please try again.");
+      }
+    };
+
+    // Update the UI based on the current state
+    const updateUI = (loading, showModal) => {
+      const button = document.getElementById("connectButton");
+      const adminUI = document.getElementById("adminUI");
+      const userUI = document.getElementById("userUI");
+
+      button.textContent = loading ? "Loading..." : connectedAddress ? "Disconnect" : "Connect Wallet";
+
+      if (showModal) {
+        if (isOwner) {
+          adminUI.style.display = "block";
+          userUI.style.display = "none";
+        } else {
+          adminUI.style.display = "none";
+          userUI.style.display = "block";
+        }
+      } else {
+        adminUI.style.display = "none";
+        userUI.style.display = "none";
+      }
+    };
+
+    // Attach event listener to the connect button
+    document.getElementById("connectButton").addEventListener("click", handleConnectWallet);
+  </script>
+</body>
+</html>
