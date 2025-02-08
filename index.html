@@ -1,173 +1,1034 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Vanilla JavaScript DApp</title>
-  <script src="https://cdn.jsdelivr.net/npm/ethers@6.0.0/dist/ethers.min.js"></script>
-  <style>
-    #connectButton {
-      padding: 10px 20px;
-      background: #4caf50;
-      color: white;
-      border: none;
-      border-radius: 5px;
-      cursor: pointer;
-    }
-    #adminUI, #userUI {
-      display: none;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Token Presale</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.7.0/ethers.umd.min.js"></script>
+    <style>
+        /* User UI Styles */
+        .connect-button {
+            padding: 10px 20px;
+            background: #4caf50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .modal.active {
+            display: block;
+        }
+
+        .loading {
+            opacity: 0.7;
+            cursor: not-allowed;
+        }
+
+        /* Admin UI Styles */
+        .admin-panel {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            color: white;
+            text-align: center;
+            font-family: 'Poppins', sans-serif;
+        }
+
+        .admin-section {
+            width: 90%;
+            max-width: 500px;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 20px;
+            border-radius: 15px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+        }
+
+        .section-title {
+            font-size: 1.5rem;
+            margin-bottom: 10px;
+        }
+
+        .input-group {
+            margin-bottom: 15px;
+        }
+
+        input {
+            margin-left: 10px;
+            padding: 8px;
+            border-radius: 8px;
+            border: none;
+            outline: none;
+        }
+
+        button {
+            margin-left: 10px;
+            padding: 10px 20px;
+            color: white;
+            font-weight: bold;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+        }
+
+        button:disabled {
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
+
+        .update-button { background-color: #ff3d00; }
+        .withdraw-button { background-color: #3b82f6; }
+        .transfer-button { background-color: #16a34a; }
+
+
+        .error-message {
+            color: red;
+            margin: 10px 0;
+            padding: 10px;
+            background: rgba(255, 0, 0, 0.1);
+            border-radius: 5px;
+        }
+        
+        .loading-indicator {
+            display: inline-block;
+            margin-left: 10px;
+        }
+    </style>
 </head>
 <body>
-  <button id="connectButton">Connect Wallet</button>
-  
-  <!-- Admin UI -->
-  <div id="adminUI">
-    <h1>Admin UI</h1>
-    <button onclick="alert('Admin functionality goes here')">Admin Action</button>
-  </div>
+    <button id="connectButton" class="connect-button">Connect Wallet</button>
+    <div id="adminUI" class="modal"></div>
+    <div id="userUI" class="modal">
+        <h1>Token Presale</h1>
+        <div id="walletInfo"></div>
+        <div id="presaleInfo"></div>
+        <div id="loadingInfo" style="display: none;">Loading contract data...</div>
+        <div id="buySection">
+            <input type="number" id="tokenAmount" class="input-field" placeholder="Amount of tokens to buy">
+            <button id="buyButton" class="buy-button">Buy Tokens</button>
+        </div>
+        <button id="closeButton" class="close-button">Close</button>
+        <div id="errorMessage" class="error"></div>
+        <div id="successMessage" class="success"></div>
+    </div>
 
-  <!-- User UI -->
-  <div id="userUI">
-    <h1>User UI</h1>
-    <button onclick="alert('User functionality goes here')">User Action</button>
-  </div>
+    <script>
+        // Contract Constants
+        const CONTRACT_ADDRESS = "0x6D0E301996717374024Cb658963b4A13c6C563BD";
+        const TOKEN_ADDRESS = '0x96516A4ca5aC205D61Cd92E29c996a577142cae4';
+        
+        // Contract ABIs
+        const PRESALE_ABI =[
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "tokensToBuy",
+				"type": "uint256"
+			}
+		],
+		"name": "buyTokens",
+		"outputs": [],
+		"stateMutability": "payable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "_end",
+				"type": "uint256"
+			}
+		],
+		"name": "setEndTime",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "_start",
+				"type": "uint256"
+			}
+		],
+		"name": "setStartTime",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "_tokenAddress",
+				"type": "address"
+			},
+			{
+				"internalType": "address",
+				"name": "_owner",
+				"type": "address"
+			},
+			{
+				"internalType": "uint256",
+				"name": "_start",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "_end",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "nonpayable",
+		"type": "constructor"
+	},
+	{
+		"anonymous": false,
+		"inputs": [
+			{
+				"indexed": true,
+				"internalType": "address",
+				"name": "buyer",
+				"type": "address"
+			},
+			{
+				"indexed": false,
+				"internalType": "uint256",
+				"name": "amount",
+				"type": "uint256"
+			}
+		],
+		"name": "TokensPurchased",
+		"type": "event"
+	},
+	{
+		"anonymous": false,
+		"inputs": [
+			{
+				"indexed": true,
+				"internalType": "address",
+				"name": "recipient",
+				"type": "address"
+			},
+			{
+				"indexed": false,
+				"internalType": "uint256",
+				"name": "amount",
+				"type": "uint256"
+			}
+		],
+		"name": "TokensWithdrawn",
+		"type": "event"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "newOwner",
+				"type": "address"
+			}
+		],
+		"name": "transferOwnership",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "withdrawUnsoldTokens",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "endTime",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "getCurrentTime",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "getDeployedTime",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "getEndTime",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "getMaticUSDPrice",
+		"outputs": [
+			{
+				"internalType": "int256",
+				"name": "",
+				"type": "int256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "getStartTime",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "getTokenPriceInMatic",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "getTokensLeft",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "owner",
+		"outputs": [
+			{
+				"internalType": "address",
+				"name": "",
+				"type": "address"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "saleToken",
+		"outputs": [
+			{
+				"internalType": "contract IERC20",
+				"name": "",
+				"type": "address"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "startTime",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "tokenAddress",
+		"outputs": [
+			{
+				"internalType": "address",
+				"name": "",
+				"type": "address"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "",
+				"type": "address"
+			}
+		],
+		"name": "tokenBalances",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "user",
+				"type": "address"
+			}
+		],
+		"name": "tokensOwned",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "tokensSold",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "totalSupply",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	}
+];
 
-  <script>
-    // The ethers.js library is available globally after the above script tag.
-    const CONTRACT_ADDRESS = "0x7B6Ff640a9cB52f4054d7540a9cc18a4F7bafFf6";
-    const TokenPresaleABI = [/* Add your ABI here */];
-    let connectedAddress = null;
-    let ownerAddress = null;
-    let isOwner = false;
-    let isLoading = false;
+        const ERC20_ABI = [
+            "function approve(address spender, uint256 amount) returns (bool)",
+            "function allowance(address owner, address spender) view returns (uint256)",
+            "function balanceOf(address account) view returns (uint256)"
+        ];
 
-    // Fetch owner address from the smart contract
-    const fetchOwnerAddress = async () => {
-      try {
-        if (!window.ethereum) throw new Error("MetaMask not installed");
-        const provider = new ethers.BrowserProvider(window.ethereum);
-        const contract = new ethers.Contract(CONTRACT_ADDRESS, TokenPresaleABI, provider);
-        const owner = await contract.owner();
-        ownerAddress = owner;
-        return owner;
-      } catch (error) {
-        console.error("Error fetching owner address:", error.message);
-        return null;
-      }
-    };
+        // State variables
+        let state = {
+            connectedAddress: null,
+            ownerAddress: null,
+            isOwner: false,
+            isModalOpen: false,
+            isLoading: false,
+            tokensLeft: 0,
+            userBalance: 0,
+            maticPrice: 0,
+            contractBalance: 0
+        };
 
-    // Switch to Polygon network
-    const switchToPolygon = async () => {
-      if (!window.ethereum) {
-        alert("MetaMask is not installed!");
-        return;
-      }
+        // DOM Elements
+        const elements = {
+            connectButton: document.getElementById('connectButton'),
+            adminUI: document.getElementById('adminUI'),
+            userUI: document.getElementById('userUI'),
+            walletInfo: document.getElementById('walletInfo'),
+            presaleInfo: document.getElementById('presaleInfo'),
+            tokenAmount: document.getElementById('tokenAmount'),
+            buyButton: document.getElementById('buyButton'),
+            closeButton: document.getElementById('closeButton'),
+            errorMessage: document.getElementById('errorMessage'),
+            successMessage: document.getElementById('successMessage')
+        };
+        // User Interface Functions
+        async function switchToPolygon() {
+            if (!window.ethereum) {
+                alert("MetaMask is not installed!");
+                return;
+            }
 
-      try {
-        const polygonChainId = "0x89"; // Polygon Mainnet Chain ID
-        const chainId = await window.ethereum.request({ method: "eth_chainId" });
+            try {
+                const polygonChainId = "0x89"; // Polygon Mainnet Chain ID
+                const chainId = await window.ethereum.request({ method: "eth_chainId" });
 
-        if (chainId !== polygonChainId) {
-          await window.ethereum.request({
-            method: "wallet_switchEthereumChain",
-            params: [{ chainId: polygonChainId }],
-          });
-        } else {
-          console.log("Already on Polygon network");
+                if (chainId !== polygonChainId) {
+                    await window.ethereum.request({
+                        method: "wallet_switchEthereumChain",
+                        params: [{ chainId: polygonChainId }],
+                    });
+                } else {
+                    console.log("Already on Polygon network");
+                }
+            } catch (error) {
+                if (error.code === 4902) {
+                    try {
+                        await window.ethereum.request({
+                            method: "wallet_addEthereumChain",
+                            params: [
+                                {
+                                    chainId: "0x89",
+                                    chainName: "Polygon Mainnet",
+                                    rpcUrls: ["https://polygon-rpc.com/"],
+                                    nativeCurrency: {
+                                        name: "MATIC",
+                                        symbol: "MATIC",
+                                        decimals: 18,
+                                    },
+                                    blockExplorerUrls: ["https://polygonscan.com/"],
+                                },
+                            ],
+                        });
+                    } catch (addError) {
+                        console.error("Error adding Polygon network:", addError.message);
+                    }
+                } else {
+                    console.error("Error switching to Polygon network:", error.message);
+                    alert("Failed to switch networks. Please check your MetaMask settings.");
+                }
+            }
         }
-      } catch (error) {
-        if (error.code === 4902) {
-          try {
-            await window.ethereum.request({
-              method: "wallet_addEthereumChain",
-              params: [
-                {
-                  chainId: "0x89",
-                  chainName: "Polygon Mainnet",
-                  rpcUrls: ["https://polygon-rpc.com/"],
-                  nativeCurrency: {
-                    name: "MATIC",
-                    symbol: "MATIC",
-                    decimals: 18,
-                  },
-                  blockExplorerUrls: ["https://polygonscan.com/"],
-                },
-              ],
+
+        async function fetchOwnerAddress() {
+            try {
+                if (!window.ethereum) throw new Error("MetaMask not installed");
+                const provider = new ethers.BrowserProvider(window.ethereum);
+                const contract = new ethers.Contract(CONTRACT_ADDRESS, PRESALE_ABI, provider);
+                const owner = await contract.owner();
+                state.ownerAddress = owner; 
+                return owner;
+            } catch (error) {
+                console.error("Error fetching owner address:", error.message);
+                return null;
+            }
+        }
+
+        function updateUI() {
+            if (!elements.connectButton || !elements.adminUI || !elements.userUI) {
+                console.error('Required DOM elements not found');
+                return;
+            }
+
+            elements.connectButton.textContent = state.isLoading 
+                ? "Loading..." 
+                : state.connectedAddress 
+                    ? "Disconnect" 
+                    : "Connect Wallet";
+            
+            elements.connectButton.classList.toggle('loading', state.isLoading);
+
+            if (state.isModalOpen) {
+                if (state.isOwner) {
+                    elements.adminUI.classList.add('active');
+                    elements.userUI.classList.remove('active');
+                } else {
+                    elements.userUI.classList.add('active');
+                    elements.adminUI.classList.remove('active');
+                }
+            } else {
+                elements.adminUI.classList.remove('active');
+                elements.userUI.classList.remove('active');
+            }
+
+            // Update presale info if available
+            if (elements.presaleInfo) {
+                elements.presaleInfo.innerHTML = `
+                    <p>Tokens Left: ${state.tokensLeft}</p>
+                    <p>Your Balance: ${state.userBalance}</p>
+                    <p>Price (USD):  0.04$</p>
+                `;
+            }
+        }
+
+        // Handle wallet connection
+        async function handleConnectWallet() {
+            try {
+                if (state.connectedAddress) {
+                    state.connectedAddress = null;
+                    state.isOwner = false;
+                    state.isModalOpen = false;
+                    updateUI();
+                    return;
+                }
+
+                state.isLoading = true;
+                updateUI();
+                
+                await switchToPolygon();
+
+                if (!window.ethereum) throw new Error("MetaMask not installed");
+
+                const provider = new ethers.BrowserProvider(window.ethereum);
+                const accounts = await provider.send("eth_requestAccounts", []);
+                
+                if (!accounts || accounts.length === 0) {
+                    throw new Error("No accounts found");
+                }
+
+                state.connectedAddress = accounts[0];
+                
+                const ownerAddr = await fetchOwnerAddress();
+                state.isOwner = state.connectedAddress.toLowerCase() === ownerAddr?.toLowerCase();
+                
+                await getContractInfo();
+                
+                state.isLoading = false;
+                state.isModalOpen = true;
+                updateUI();
+
+            } catch (error) {
+                state.isLoading = false;
+                elements.errorMessage.textContent = `Connection error: ${error.message}`;
+                updateUI();
+            }
+        }
+
+
+        async function getContractInfo() {
+            if (!state.connectedAddress) return;
+            
+            const loadingInfo = document.getElementById('loadingInfo');
+            loadingInfo.style.display = 'block';
+            
+            try {
+                const provider = new ethers.BrowserProvider(window.ethereum);
+                const presaleContract = new ethers.Contract(CONTRACT_ADDRESS, PRESALE_ABI, provider);
+                
+                // Add try-catch for each contract call
+                try {
+                    const left = await presaleContract.getTokensLeft();
+                    state.tokensLeft = ethers.formatEther(left);
+                } catch (err) {
+                    console.error('Error getting tokens left:', err);
+                    state.tokensLeft = 'Error loading';
+                }
+                
+                try {
+                    const balance = await presaleContract.tokensOwned(state.connectedAddress);
+                    state.userBalance = ethers.formatUnits(balance, 18);
+                } catch (err) {
+                    console.error('Error getting user balance:', err);
+                    state.userBalance = 'Error loading';
+                }
+                
+                /* try {
+                    const price = await presaleContract.getTokenPriceInMatic();
+                    state.maticPrice = ethers.formatEther(price);
+                } catch (err) {
+                    console.error('Error getting token price:', err);
+                    state.maticPrice = 'Error loading';
+                } */
+                
+                updateUI();
+            } catch (err) {
+                console.error('Error fetching contract info:', err);
+                elements.errorMessage.textContent = 'Failed to fetch contract info. Please check if you are connected to the correct network.';
+            } finally {
+                loadingInfo.style.display = 'none';
+            }
+        }
+
+        // Buy tokens function
+        async function buyTokens() {
+            const amount = tokenAmount.value;
+            if (!amount || parseFloat(amount) <= 0) {
+                errorMessage.textContent = 'Please enter a valid amount';
+                return;
+            }
+
+            state.isLoading = true;
+            errorMessage.textContent = '';
+            successMessage.textContent = '';
+            updateUI();
+
+            try {
+                const provider = new ethers.BrowserProvider(window.ethereum);
+                const signer = await provider.getSigner();
+                const presaleContract = new ethers.Contract(CONTRACT_ADDRESS, PRESALE_ABI, signer);
+                console.log(presaleContract)
+
+                const tokenPriceInMatic = await presaleContract.getTokenPriceInMatic();
+                console.log(tokenPriceInMatic)
+                console.log(amount)
+                const tokensAmount = ethers.parseUnits(amount.toString());
+                console.log(tokensAmount)
+                const maticRequired = (tokensAmount * tokenPriceInMatic) / ethers.parseUnits("1", 18);
+                console.log(maticRequired)
+
+                const buyTx = await presaleContract.buyTokens(amount, { maticRequired });
+                console.log(buyTx)
+                await buyTx.wait();
+                
+                await getContractInfo();
+                tokenAmount.value = '';
+                successMessage.textContent = 'Tokens purchased successfully!';
+            } catch (err) {
+                console.error('Transaction error:', err);
+                errorMessage.textContent = 'Transaction failed: ' + (err.reason || err.message);
+            } finally {
+                state.isLoading = false;
+                updateUI();
+            }
+        }
+
+        // Admin UI Class
+        class AdminUI {
+            constructor() {
+                if (!state.isOwner) {
+                    console.error('Not authorized as owner');
+                    return;
+                }
+                
+                this.initializeUI().catch(err => {
+                    console.error('Failed to initialize admin UI:', err);
+                    elements.adminUI.innerHTML = `
+                        <div class="error-message">
+                            Failed to initialize admin interface. Please check if you are the contract owner and connected to the correct network.
+                        </div>
+                    `;
+                });
+            }
+
+    async initializeUI() {
+        // Create admin UI element
+        const adminUI = document.getElementById('adminUI');
+        adminUI.innerHTML = this.createAdminTemplate();
+
+        // Initialize contract
+        await this.initContract();
+
+        // Add event listeners
+        this.addEventListeners();
+    }
+
+    createAdminTemplate() {
+        return `
+            <div class="admin-panel">
+                <h1 style="font-size: 3rem; font-weight: bold; margin-bottom: 20px;">
+                    Token Presale Admin Panel
+                </h1>
+                <p style="font-size: 1.2rem; margin-bottom: 40px; background-color: rgba(0, 0, 0, 0.5); padding: 10px 20px; border-radius: 10px;">
+                    <strong>Connected Wallet:</strong> <span id="adminWalletAddress">Not connected</span>
+                </p>
+
+                <!-- Manage Presale Section -->
+                <div class="admin-section">
+                    <h2 class="section-title">Manage Presale</h2>
+                    <div class="input-group">
+                        <label>Start Time:</label>
+                        <input type="datetime-local" id="startDate">
+                    </div>
+                    <div class="input-group">
+                        <label>End Time:</label>
+                        <input type="datetime-local" id="endDate">
+                        <button class="update-button" id="updateTimesBtn">Update Times</button>
+                    </div>
+                </div>
+
+                <!-- Withdraw Tokens Section -->
+                <div class="admin-section">
+                    <h2 class="section-title">Withdraw Unsold Tokens</h2>
+                    <p><strong>Unsold Tokens:</strong> <span id="unsoldTokensAmount">0</span></p>
+                    <button class="withdraw-button" id="withdrawTokensBtn">Withdraw Tokens</button>
+                </div>
+
+                <!-- Transfer Ownership Section -->
+                <div class="admin-section">
+                    <h2 class="section-title">Transfer Ownership</h2>
+                    <div class="input-group">
+                        <label>New Owner Address:</label>
+                        <input type="text" id="newOwnerAddress">
+                        <button class="transfer-button" id="transferOwnershipBtn">Transfer Ownership</button>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    async initContract() {
+        if (!window.ethereum) {
+            alert("Please install MetaMask!");
+            return;
+        }
+
+        try {
+            const provider = new ethers.BrowserProvider(window.ethereum);
+            const signer = await provider.getSigner();
+            this.contract = new ethers.Contract(
+                this.contractAddress,
+                PRESALE_ABI,  // Using PRESALE_ABI instead of contractABI
+                signer
+            );
+
+            // Update initial values
+            await this.updateContractInfo();
+        } catch (error) {
+            console.error("Failed to initialize contract:", error);
+        }
+    }
+
+    async updateContractInfo() {
+        try {
+            const [owner, startTime, endTime, unsoldTokens] = await Promise.all([
+                this.contract.owner(),
+                this.contract.getStartTime(),
+                this.contract.getEndTime(),
+                this.contract.getTokensLeft()
+            ]);
+
+            // Update wallet address display
+            const adminWalletAddress = document.getElementById('adminWalletAddress');
+            const currentAddress = await window.ethereum.request({ method: 'eth_accounts' });
+            adminWalletAddress.textContent = currentAddress[0] || 'Not connected';
+
+            // Update unsold tokens display
+            document.getElementById('unsoldTokensAmount').textContent = 
+                ethers.formatUnits(unsoldTokens, 18);
+            
+            // Update dates if they exist
+            if (startTime) {
+                const startDate = new Date(Number(startTime) * 1000);
+                document.getElementById('startDate').value = 
+                    startDate.toISOString().slice(0, 16);
+            }
+            
+            if (endTime) {
+                const endDate = new Date(Number(endTime) * 1000);
+                document.getElementById('endDate').value = 
+                    endDate.toISOString().slice(0, 16);
+            }
+        } catch (error) {
+            console.error("Error updating contract info:", error);
+        }
+    }
+
+    calculateEpoch(dateString) {
+        const inputDate = new Date(dateString);
+        if (isNaN(inputDate.getTime())) {
+            alert("Invalid date format. Please use a valid date.");
+            return null;
+        }
+        return Math.floor(inputDate.getTime() / 1000);
+    }
+
+    setLoading(isLoading) {
+        this.loading = isLoading;
+        const buttons = document.querySelectorAll('button');
+        buttons.forEach(button => {
+            button.disabled = isLoading;
+        });
+    }
+
+    addEventListeners() {
+        // Update Times
+        document.getElementById('updateTimesBtn').addEventListener('click', async () => {
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+            
+            if (!startDate || !endDate) {
+                alert("Please set both start and end times");
+                return;
+            }
+
+            const newStart = this.calculateEpoch(startDate);
+            const newEnd = this.calculateEpoch(endDate);
+
+            if (!newStart || !newEnd) return;
+
+            if (newEnd <= newStart) {
+                alert("End time must be after start time");
+                return;
+            }
+
+            try {
+                this.setLoading(true);
+                const txStart = await this.contract.setStartTime(newStart);
+                await txStart.wait();
+
+                const txEnd = await this.contract.setEndTime(newEnd);
+                await txEnd.wait();
+
+                alert("Start and end times updated successfully!");
+                await this.updateContractInfo();
+            } catch (err) {
+                console.error(err);
+                alert("Failed to update times: " + (err.reason || err.message));
+            } finally {
+                this.setLoading(false);
+            }
+        });
+
+        // Withdraw Tokens
+        document.getElementById('withdrawTokensBtn').addEventListener('click', async () => {
+            try {
+                this.setLoading(true);
+                const tx = await this.contract.withdrawUnsoldTokens();
+                await tx.wait();
+                alert("Unsold tokens withdrawn successfully!");
+                await this.updateContractInfo();
+            } catch (err) {
+                console.error(err);
+                alert("Failed to withdraw unsold tokens: " + (err.reason || err.message));
+            } finally {
+                this.setLoading(false);
+            }
+        });
+
+        // Transfer Ownership
+        document.getElementById('transferOwnershipBtn').addEventListener('click', async () => {
+            const newOwnerAddress = document.getElementById('newOwnerAddress').value;
+            
+            if (!ethers.isAddress(newOwnerAddress)) {
+                alert("Invalid address format!");
+                return;
+            }
+
+            try {
+                this.setLoading(true);
+                const tx = await this.contract.transferOwnership(newOwnerAddress);
+                await tx.wait();
+                alert("Ownership transferred successfully!");
+                document.getElementById('newOwnerAddress').value = '';
+                await this.updateContractInfo();
+            } catch (err) {
+                console.error(err);
+                alert("Failed to transfer ownership: " + (err.reason || err.message));
+            } finally {
+                this.setLoading(false);
+            }
+        });
+
+        // Auto-update contract info when account changes
+        if (window.ethereum) {
+            window.ethereum.on('accountsChanged', async () => {
+                await this.updateContractInfo();
             });
-          } catch (addError) {
-            console.error("Error adding Polygon network:", addError.message);
-          }
-        } else {
-          console.error("Error switching to Polygon network:", error.message);
-          alert("Failed to switch networks. Please check your MetaMask settings.");
         }
-      }
-    };
+    }
+}
 
-    // Handle wallet connection and check if the connected address is the owner
-    const handleConnectWallet = async () => {
-      try {
-        const button = document.getElementById("connectButton");
+        // Event Listeners
+        connectButton.addEventListener('click', handleConnectWallet);
+        buyButton.addEventListener('click', buyTokens);
+        closeButton.addEventListener('click', () => userUI.classList.remove('active'));
 
-        if (connectedAddress) {
-          // Disconnect wallet
-          connectedAddress = null;
-          isOwner = false;
-          updateUI(false, false);
-          return;
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            // Verify all elements exist
+            Object.entries(elements).forEach(([key, element]) => {
+                if (!element) {
+                    console.error(`Missing DOM element: ${key}`);
+                }
+            });
+
+            if (window.ethereum && window.connectedAddress) {
+                getContractInfo();
+            }
+            
+            // Initialize AdminUI
+            if (elements.adminUI) {
+                adminUI = new AdminUI();
+            }
+        });
+
+        // Event Listeners
+        if (elements.connectButton) {
+            elements.connectButton.addEventListener('click', handleConnectWallet);
+        }
+        if (elements.buyButton) {
+            elements.buyButton.addEventListener('click', buyTokens);
+        }
+        if (elements.closeButton) {
+            elements.closeButton.addEventListener('click', () => {
+                if (elements.userUI) {
+                    elements.userUI.classList.remove('active');
+                }
+                state.isModalOpen = false;
+            });
         }
 
-        isLoading = true;
-        updateUI(true, false);
-
-        await switchToPolygon();
-
-        if (!window.ethereum) throw new Error("MetaMask not installed");
-
-        const provider = new ethers.BrowserProvider(window.ethereum);
-        const signer = await provider.getSigner();
-        const connectedAddr = await signer.getAddress();
-        connectedAddress = connectedAddr;
-
-        setTimeout(async () => {
-          const ownerAddr = await fetchOwnerAddress();
-          isOwner = connectedAddr.toLowerCase() === ownerAddr?.toLowerCase();
-          isLoading = false;
-          updateUI(false, true);
-        }, 3000);
-      } catch (error) {
-        isLoading = false;
-        console.error("Failed to connect wallet:", error.message);
-        alert("An error occurred while connecting to the wallet. Please try again.");
-      }
-    };
-
-    // Update the UI based on the current state
-    const updateUI = (loading, showModal) => {
-      const button = document.getElementById("connectButton");
-      const adminUI = document.getElementById("adminUI");
-      const userUI = document.getElementById("userUI");
-
-      button.textContent = loading ? "Loading..." : connectedAddress ? "Disconnect" : "Connect Wallet";
-
-      if (showModal) {
-        if (isOwner) {
-          adminUI.style.display = "block";
-          userUI.style.display = "none";
-        } else {
-          adminUI.style.display = "none";
-          userUI.style.display = "block";
+        // Initialize MetaMask Events
+        if (window.ethereum) {
+            window.ethereum.on('accountsChanged', async (accounts) => {
+                if (accounts.length > 0) {
+                    state.connectedAddress = accounts[0];
+                    await getContractInfo();
+                } else {
+                    state.connectedAddress = null;
+                }
+                updateUI();
+            });
         }
-      } else {
-        adminUI.style.display = "none";
-        userUI.style.display = "none";
-      }
-    };
-
-    // Attach event listener to the connect button
-    document.getElementById("connectButton").addEventListener("click", handleConnectWallet);
-  </script>
+    </script>
 </body>
 </html>
